@@ -1,0 +1,81 @@
+
+- hosts: all
+  become_user: root
+  become: true
+  tasks:
+    - name: upgrade the OS
+      apt: upgrade=yes update_cache=yes
+      ignore_errors: yes
+      tags: update_os
+
+    # TODO: install python3
+   
+    - name: check if pip is installed
+      command: pip --version
+      ignore_errors: yes
+      register: pip_version
+
+    - name: get pip installer
+      get_url: 
+        url: https://bootstrap.pypa.io/get-pip.py
+        dest: /tmp/get-pip.py     
+      when: pip_version
+
+    - name: install pip
+      command: python3 /tmp/get-pip.py
+      when: pip_version
+
+    - name: install virtualenv
+      pip: name=virtualenv
+
+    - name: create homeasistant group
+      group: name=homeassistant
+
+    - name: create homeassistant user, homedir
+      user: name=homeassistant group=homeassistant
+
+    - name: make the venvs dir
+      become_user: homeassistant
+      file: path=/home/homeassistant/.local/venvs state=directory mode=0755
+
+    - name: check if hass service is installed
+      stat: path=/etc/systemd/system/homeassistant.service
+      register: hass_svc
+
+    - name: stop hass if it's running
+      service:
+        name: homeassistant
+        state: stopped
+      when: hass_svc.stat.exists
+      tags: update_hass
+
+    - name: install the hass service
+      copy: src=hass-files/homeassistant.service dest=/etc/systemd/system/homeassistant.service
+      when: not hass_svc.stat.exists
+
+    - name: check if hass is installed
+      stat: path=/home/homeassistant/.local/venvs/homeassistant/bin/hass
+      register: hass
+
+    - name: install/upgrade hass
+      become_user: homeassistant
+      pip:
+        name: homeassistant
+        state: latest
+        virtualenv: /home/homeassistant/.local/venvs/homeassistant
+        virtualenv_python: python3       
+      tags: update_hass
+
+    - name: start hass service
+      service:
+        name: homeassistant
+        state: started
+      tags: update_hass
+
+    - name: restart hass service
+      service:
+        name: homeassistant
+        state: restarted
+      tags: restart_hass
+
+
